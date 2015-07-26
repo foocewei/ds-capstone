@@ -1,0 +1,85 @@
+#Milestone Report
+##Summary
+This project uses the english data from HC Corpora as provided on the course website. The data was randomly sampled in weightage according to the usefulness of the data. The data was then cleaned and tokenized, and split into various corpus for unigrams, bigrams and trigrams. Exploratory analysis was conducted on the corpus.
+
+##Data Cleansing
+As news is written in proper english, it would seem to be most useful for this project, if not for the limited topics covered. The next most useful set of data would be blogs, which is less formal and covers a wider range of topics. Least useful would be the twitter data, as there are a lot of special characters and abbreviations. As such, we sample data from each source, weighted in order of usefulness.
+
+```{r}
+library(knitr)
+library(tm)
+library(stringi)
+library(RWeka)
+library(slam)
+library(wordcloud)
+
+blogs <- readLines("final/en_US/en_US.blogs.txt", encoding = 'UTF-8')
+news <- readLines("final/en_US/en_US.news.txt", encoding = 'UTF-8')
+twitter <- readLines("final/en_US/en_US.twitter.txt", encoding = 'UTF-8')
+
+set.seed(8)
+sub_blogs <- blogs[sample(1:length(blogs), 20000)]
+set.seed(8)
+sub_news <- news[sample(1:length(news), 15000)]
+set.seed(8)
+sub_twitter <- twitter[sample(1:length(twitter), 10000)]
+
+all_text <- c(sub_blogs, sub_news, sub_twitter)
+```
+
+Next, we clean the data by doing the following:
+1) remove special characters
+2) change all characters to lower case
+3) remove punctuation
+4) remove numbers
+5) remove white space
+
+```{r}
+all_text <- stri_enc_toascii(all_text)
+all_text <- stri_replace_all_regex(all_text,'\032','')
+all_text <- Corpus(VectorSource(all_text))
+
+all_text <- tm_map(all_text, content_transformer(tolower))
+all_text <- tm_map(all_text, removePunctuation)
+all_text <- tm_map(all_text, removeNumbers)
+all_text <- tm_map(all_text, removeWords, stopwords("english"))
+all_text <- tm_map(all_text, stemDocument,language = ("english"))
+all_text <- tm_map(all_text, stripWhitespace)
+```
+
+Now we build the corpus of unigram, bigram and trigram. To reduce the size of the corpus and keep only the useful terms, we remove all the terms with an occurrence of less than 10 times in the sample data set.
+```{r}
+ctrl <- list(tokenize = words, bounds = list(global = c(10,Inf)))
+
+options(mc.cores=1)
+
+BigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))}
+ctrl2 <- list(tokenize = BigramTokenizer, bounds = list(global = c(10,Inf)))
+
+TrigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))}
+ctrl3 <- list(tokenize = TrigramTokenizer, bounds = list(global = c(10,Inf)))
+
+Tokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 1, max = 3))}
+ctrl0 <- list(tokenize = Tokenizer, bounds = list(global = c(10,Inf)))
+
+tdm <- TermDocumentMatrix(all_text,control = ctrl)
+bidm <- TermDocumentMatrix(all_text,control = ctrl2)
+tridm <- TermDocumentMatrix(all_text,control = ctrl3)
+tdm0 <- TermDocumentMatrix(all_text,control = ctrl0)
+
+freq <- rowapply_simple_triplet_matrix(tdm,sum)
+freqbi <- rowapply_simple_triplet_matrix(bidm,sum)
+freqtri <- rowapply_simple_triplet_matrix(tridm,sum)
+freq0 <- rowapply_simple_triplet_matrix(tdm0,sum)
+```
+
+##Data Exploration
+Display the histogram of the frequencies of the various corpus, and a word cloud showing terms with occurrence of at least 400 times.
+```{r}
+par(oma=c(0,0,3,0),mfrow = c(2,2), mar=c(2,2,2,2))
+hist(log(freq), breaks = 50, main = 'unigrams', xlab='log value of the frequency', ylab='')
+hist(log(freqbi), breaks = 50, main = 'bigram', xlab='log value of the frequency', ylab='')
+hist(log(freqtri), breaks = 50, main = 'trigrams', xlab='log value of the frequency', ylab='')
+wordcloud(names(freq0), freq0, min.freq = 400)
+title("Frequency of terms and word cloud of all three corpus",outer=T)
+```
